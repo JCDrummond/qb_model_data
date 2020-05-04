@@ -1,0 +1,245 @@
+---
+title: "2019 NFL QB Statistics"
+author: "Josh Drummond"
+date: "02/05/2020"
+output:
+  prettydoc::html_pretty:
+    theme: leonids
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+An activity to provide an opportunity to practice building simple linear regression models using R, with the added opportunity to finetune R Markdown, Git and GitHub skills. 
+
+## The Data
+This data has been sources from [Pro Football Reference](pro-football-reference.com/years/2019/passing.htm)
+
+## Our Question
+Passer rating is a metric used to evaluate quarterbacks in the NFL, and it is calculated based on a quarterback’s completions, yards gained, touchdowns, interceptions and attempts.
+
+***How does passer rating relate to success?***
+We can use the number of wins a team has when a particular quarterback tarts as a meausre of success. And then the questons we are trying to answer now are:
+
+*1. Do quarterbacks with a higher passer rating have more wins?*
+
+*2. Do quarterbacks with a lower passer rating have fewer wins?*
+
+*3. How many wins can we expect to get when we have a tarting quarterback with a particular passer rating?*
+
+### *Creating new repository on GitHub*
+The new repository can be found on my [GitHub](https://github.com/JCDrummond/qb_model_data)
+
+
+### *Cloning GitHub repository to a local repository on my computer*
+Following these steps in terminal, I was able to set up my working directory to complete this project
+
+- $ mkdir data
+
+- $ cd data
+
+- $ git remote add origin https://github.com/JCDrummond/qb_model_data.git 
+
+- $ git clone https://github.com/JCDrummond/qb_model_data.git 
+
+## Load required packages
+
+```{r packages, message=FALSE}
+library(tidyverse) 
+library(broom)
+library(knitr)
+```
+
+## Read data
+
+Read in the file using the `read_csv()` function from the `readr` package. 
+
+```{r read_data, message=FALSE} 
+df <- read_csv("2019_nfl_qb_data-1.csv")
+```
+
+``` {r structure}
+str(df)
+```
+
+## Checking the data
+
+Check the first 6 rows of the data file using `head()`
+
+```{r head}
+head(df)
+```
+
+Check the last 6 rows of the data file using `tail()`
+
+```{r tail}
+tail(df)
+```
+
+## Data Transformation
+
+```{r transform}
+filter_df <- df %>%
+  filter(games_started >= 10) %>%
+  mutate(win_percentage = wins / games_started *100)
+```
+
+```{r new-table}
+knitr::kable(filter_df)
+```
+
+## Exploratory Data Analysis
+Below I have created a plot to observe the relatonship between the "Win Percentage" and the "Passer Rating"
+
+```{r pass-win}
+ggplot(data = filter_df, aes(x = passer_rating, y = win_percentage)) + 
+  geom_point(colour = "black") +
+  geom_smooth(method = "lm", colour = "red") +
+  geom_hline(yintercept = 50, colour = "blue", linetype = "dashed")
+```
+
+As we can see from the graph above, there is a clear linear relationship between those two factors, which, we can explore the strength by the correlation coefficient. 
+
+```{r coefficient}
+cor(x = filter_df$passer_rating, y = filter_df$win_percentage, method = "pearson")
+
+summary(filter_df)
+```
+
+The positive result confirms what we had observed from the graph, that the relationship is a positive linear relationship, but as the result of 0.686 is not overly close to 1, the relationship although positive, is not a strong relationship. Therefore, we cannot simply assume a greater passer rating results in a greater winnning percentage. 
+
+## Simple Linear Regression
+
+```{r linear-influ}
+qbinf <- lm(win_percentage ~ passer_rating, data = filter_df)
+tidy(qbinf, conf.int = TRUE)
+```
+
+The Intercept linear regression values, represent the win percentage and witht the estimate percentage value when the QB passer rating is 0 is -50.7. If we put this in real world terms, that team that had a QB passer rating of 0 wouldn't ever win a game, it would be theoretically impossible from these estimations. With the high and low confidence ratings also in the negatives, it confirms to us that a passer rating of 0 is a loss, no matter how many games you played. 
+
+The passer rating values, however, confirm our initial thoughts of the linear relationship, as the slope with an estimate of 1.12, demostrates that if a players passing rating increases by 1, the winning percentage will increase by 1.12, with a low confidence level of a 0.644 rise and a high confidence level of a 1.61 rise. This shows that the their is correlation but it is a very minor correlation between these two variables. 
+
+
+## Independence of Observations
+Here we'll determine if our linear regression meets the assumption of independence of observations through the Durbin Watson Test.
+
+```{r dWtest}
+car::durbinWatsonTest(qbinf)
+```
+
+We observe that our D-W Statistic of 2.372391 is close to the recommeded value of 2. The satisfies the assumptions of indenpence of observations so there isn't a need to consder another type of analysis, such as a time series analysis or linear mixed models for now.
+
+## Outliers
+
+```{r outliers}
+print(std_dev <- rstandard(qbinf))
+points <- 1:length(std_dev)
+```
+
+```{r labels}
+res_labels <- if_else(abs(std_dev) >1.5, paste(points), "")
+```
+
+```{r outliers-2}
+ggplot(data = NULL, aes(x = points, y = std_dev)) + 
+     geom_point() +
+     geom_text(aes(label = res_labels), nudge_y = 0.3) +
+     geom_hline(yintercept = c(-3,3), colour = "red", linetype = "dashed")
+```
+
+In the above graph, I have added the label command to point out which plots are greater than 1.5 standard deviations to get an indication of their values, when we observe the "std_dev" printed above the graph, we can see that the values 4, 8, 11 and 22 are 1.5 standard deviations, however all the points are less than 3 std. devs away so there are no outliers in this data. 
+## Leverage Points
+
+```{r hats}
+hats <- hatvalues(qbinf)
+
+ggplot(data = NULL, aes(x = points, y = hats))+
+     geom_point()
+```
+
+There are three points at the end of the graph that on first glance you could have assumed they would be leverage points, but referencing the Y-Axis and the values are aprox 0.20 and below and therefore closer to 0 than 1, meaning there are no leverage points in this set of data.
+
+## Influential Points
+
+```{r cooks}
+cook <- cooks.distance(qbinf)
+
+cook_labels <- if_else(cook >= 0.08, paste(points), "")
+
+ggplot(data = NULL, aes(x = points, y = cook)) +
+  geom_point() +
+  geom_text(aes(label = cook_labels), nudge_y = 0.01)
+```
+
+The points 4, 11 and 28 are the values that have greatest effect on the regression relationship. Below we will run the regression with and without those 3 points to determine if they have an impact on the linear regression
+
+```{r lin_lever_without}
+outliers <- c(4, 11, 28)
+filtered_df <- filter_df %>%
+  filter(case_no != "4",
+         case_no != "11",
+         case_no != "28")
+```
+
+### Regression With All Values
+
+```{r new_regression}
+ggplot(data = filter_df, aes(x = passer_rating, y = win_percentage)) + 
+  geom_point(colour = "black") +
+  geom_smooth(method = "lm", colour = "red") +
+  geom_hline(yintercept = 50, colour = "blue", linetype = "dashed")
+```
+
+### Regression Without Leverage Points
+```{r regression-without}
+ggplot(data = filtered_df, aes(x = passer_rating, y = win_percentage)) + 
+  geom_point(colour = "black") +
+  geom_smooth(method = "lm", colour = "red") +
+  geom_hline(yintercept = 50, colour = "blue", linetype = "dashed")
+```
+
+As we compare the two graphs above with and without the leverage points identified there is no distinctive change to the linear regression, showing the strength of the leverage points were quite low. We can confirm this withthe R-Squared values
+
+```{r corr}
+cor(x = filtered_df$passer_rating, y = filtered_df$win_percentage, method = "pearson")
+```
+
+```{r qbinf}
+qbinf_lev <- lm(win_percentage ~ passer_rating, data = filtered_df)
+tidy(qbinf, conf.int = TRUE)
+```
+
+```{r qb-summary}
+summary(qbinf_lev)
+```
+
+## Homoscedasticity
+
+```{r homoscedasticity}
+res <- residuals(qbinf)
+fitted <- predict(qbinf)
+
+ggplot(data = NULL, aes( x = fitted, y = res)) +
+     geom_point(colour = "grey2") +
+     geom_smooth(colour = "darkgreen")
+```
+
+There's minimal evidence shown above of heteroscedasticity.
+
+## Normality of Residuals
+
+```{r normality}
+ggplot(data = NULL, aes(x = res)) +
+  geom_histogram(colour = "black", fill = "dodgerblue", binwidth = 10)
+
+ggplot(data = NULL, aes(sample = res)) +
+     stat_qq() + stat_qq_line()
+```
+
+## Interpretation
+
+Passing Rating alone, although it showed a linear relationship with the Winning Percentage, it was a weak relationship, which indicates that there are many more underlying factors at play rather than the passer rating. Yes, in NFL, the QB is the most important player, and with a poor QB, teams usually struggle to compete as they dictate the pace and style of the offence. 
+The reason why it is a weak linear relationship though, is that there are multiple factors that can influence a game. For example, on offence, a lot of teams play a rushing yard style play, that doesn't affect the QB's passer rating positively or negatively. On top of that, if the defence is poor in their RB's and LB's the opposition QB's passing game will be significantly strengthened as the risk of throwing pick 6's are reduced as they have time to sit in the pocket and pick their ideal route. If a team's defence gives up a lot of points, the QB passer rating won't be the main influence of the winning percentage. 
